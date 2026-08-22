@@ -103,7 +103,12 @@ async function find_end_of_central_directory(handle: FileHandle, path: string, f
 	await handle.read(tail, 0, tail_size, file_size - tail_size);
 	for (let pos = tail_size - 22; pos >= 0; pos--) {
 		if (tail.readUInt32LE(pos) === 0x06054b50) {
-			return tail.subarray(pos + 4);
+			// The signature bytes can also appear inside the archive comment; a
+			// real EOCD's declared comment length reaches exactly the file end.
+			const comment_length = tail.readUInt16LE(pos + 20);
+			if (pos + 22 + comment_length === tail_size) {
+				return tail.subarray(pos + 4);
+			}
 		}
 	}
 	throw new Error(`${path}: no end-of-central-directory record found`);
@@ -163,7 +168,9 @@ async function main(): Promise<void> {
 	for (const vsix_file of vsix_files) {
 		rows.push(await process_vsix(vsix_file, packages_by_key));
 	}
-	rows.sort((a, b) => a.release_date.localeCompare(b.release_date) || a.vsix_file.localeCompare(b.vsix_file));
+	// Marketplace timestamps have variable-width fractional seconds (".1Z" vs
+	// ".14Z"), so lexical order is not chronological; compare parsed times.
+	rows.sort((a, b) => (Date.parse(a.release_date) - Date.parse(b.release_date)) || a.vsix_file.localeCompare(b.vsix_file));
 
 	const jsonl = rows.map((row) => `${JSON.stringify(row)}\n`).join("");
 	await writeFile(OUTPUT_JSONL, jsonl);
