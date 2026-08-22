@@ -213,6 +213,9 @@ importers:
       ayy:
         specifier: ^4.1.0
         version: 4.1.0
+      uplot:
+        specifier: ^1.6.32
+        version: 1.6.32
     devDependencies:
       '@logtape/lint':
         specifier: ^2.3.2
@@ -547,6 +550,9 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
+  uplot@1.6.32:
+    resolution: {integrity: sha512-KIMVnG68zvu5XXUbC4LQEPnhwOxBuLyW1AHtpm6IKTXImkbLgkMy+jabjLgSLMasNuGGzQm/ep3tOkyTxpiQIw==}
+
 snapshots:
 
   '@logtape/lint@2.3.2': {}
@@ -750,3 +756,5 @@ snapshots:
       '@typescript/typescript-win32-x64': 7.0.2
 
   undici-types@8.3.0: {}
+
+  uplot@1.6.32: {}

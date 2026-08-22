@@ -6,6 +6,7 @@
   "scripts": {
     "download": "node src/download_vsix.ts",
     "process": "node src/process_vsix.ts",
+    "chart": "node src/build_chart.ts",
     "check": "tsc --noEmit && oxlint"
   },
   "keywords": [],
@@ -21,7 +22,8 @@
   "type": "module",
   "dependencies": {
     "@logtape/logtape": "^2.3.2",
-    "ayy": "^4.1.0"
+    "ayy": "^4.1.0",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@logtape/lint": "^2.3.2",
