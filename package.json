@@ -7,6 +7,8 @@
     "download": "node src/download_vsix.ts",
     "process": "node src/process_vsix.ts",
     "chart": "node src/build_chart.ts",
+    "analyze": "node src/analyze_bun.ts",
+    "composition-chart": "node src/build_composition_chart.ts",
     "check": "tsc --noEmit && oxlint"
   },
   "keywords": [],
