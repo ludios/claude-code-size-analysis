@@ -87,6 +87,20 @@ When there are multiple good ways to implement something, especially involving s
 
 For CREATE TABLE i.e. DDL work in the .sql files, show that your change is optimal among all variants, or consult the human user; they have good data modeling thoughts.
 
+# Web design
+
+Set your mind to 2010 styling and information density; rely almost entirely on lightly styled (not referring to color) native HTML elements.
+
+Please keep things working well in both light mode and dark mode.
+
+Write CSS mostly the old way and don't add more than you really need.
+
+It's okay to make things look nice within these constraints, like using 8px padding or grid, suitable line-height, color or font-weight or font-family for differentiation, etc.
+
+We really want things to be obvious at a glance while not having superfluous stuff.
+
+Also, no title= tooltips; they're dubious desktop-only things which must be written by humans.
+
 # After making changes
 
 Automatically commit your changes with this commit template:
