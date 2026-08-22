@@ -369,7 +369,7 @@ ${uplot.js}
 <body>
 <main>
 <h1>${page.title}</h1>
-<p class="subtitle">${page.subtitle_html}</p>
+${page.subtitle_html === "" ? "" : `<p class="subtitle">${page.subtitle_html}</p>`}
 <div class="chart-card">
 	<div id="chart"></div>
 	<p class="legend-hint">Click a legend entry to hide or show its series.</p>
