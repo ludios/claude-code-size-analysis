@@ -13,14 +13,17 @@ import { render_chart_page } from "./chart_common.ts";
 const INPUT_JSONL = "data/bun_composition.jsonl";
 const OUTPUT_HTML = "data/claude_composition_chart.html";
 
-// Stack order, bottom to top; each component keeps its color slot forever.
+// Stack order, bottom to top; each component keeps its palette slot forever.
+// Slot 6 (green) is skipped: beside slot 3 (aqua) it would read as a second
+// green, so "other" takes slot 7 (violet) instead — this 1,2,3,4,5,7 sequence
+// passes the palette validator's adjacent-pair checks in both modes.
 const COMPONENTS = [
-	{ key: "runtime",         label: "Bun runtime" },
-	{ key: "bytecode",        label: "JSC bytecode" },
-	{ key: "js_bundle",       label: "JS bundle" },
-	{ key: "native_addons",   label: "native addons" },
-	{ key: "vendored_assets", label: "vendored assets" },
-	{ key: "other",           label: "other" },
+	{ key: "runtime",         label: "Bun runtime",     slot: 1 },
+	{ key: "js_bundle",       label: "JS bundle",       slot: 2 },
+	{ key: "bytecode",        label: "JSC bytecode",    slot: 3 },
+	{ key: "native_addons",   label: "native addons",   slot: 4 },
+	{ key: "vendored_assets", label: "vendored assets", slot: 5 },
+	{ key: "other",           label: "other",           slot: 7 },
 ] as const;
 
 const log = getLogger(["chart"]);
@@ -47,6 +50,8 @@ interface ChartData {
 	versions: string[];
 	/** Component labels in stack order, bottom first. */
 	labels: string[];
+	/** Palette slot per component, same order as labels. */
+	slots: number[];
 	/** Component sizes in bytes, [component][version], same order as labels. */
 	components: number[][];
 }
@@ -70,6 +75,7 @@ function build_chart_data(rows: CompositionRow[]): ChartData {
 		timestamps: ordered.map((r) => Math.round(Date.parse(r.release_date) / 1000)),
 		versions:   ordered.map((r) => r.version),
 		labels:     COMPONENTS.map((c) => c.label),
+		slots:      COMPONENTS.map((c) => c.slot),
 		components: COMPONENTS.map((c) => ordered.map((r) => r[c.key])),
 	};
 }
@@ -131,8 +137,8 @@ function make_plot(shown) {
 			...DATA.labels.map((label, s) => ({
 				label,
 				show:   shown[s],
-				stroke: css_var("--series-" + (s + 1)),
-				fill:   css_var("--series-" + (s + 1)) + "59",
+				stroke: css_var("--series-" + DATA.slots[s]),
+				fill:   css_var("--series-" + DATA.slots[s]) + "59",
 				width:  2,
 				points: { show: false },
 			})),
@@ -178,7 +184,7 @@ function build_tooltip(u, idx) {
 		const row = table.insertRow();
 		const key = document.createElement("span");
 		key.className = "tt-key";
-		key.style.background = css_var("--series-" + (s + 1));
+		key.style.background = css_var("--series-" + DATA.slots[s]);
 		row.insertCell().appendChild(key);
 		const value = row.insertCell();
 		value.className   = "tt-value";
