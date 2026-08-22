@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "download": "node src/download_vsix.ts",
+    "process": "node src/process_vsix.ts",
     "check": "tsc --noEmit && oxlint"
   },
   "keywords": [],
