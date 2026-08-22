@@ -1,0 +1,32 @@
+{
+  "name": "claude-code-size-analysis",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "download": "node src/download_vsix.ts",
+    "check": "tsc --noEmit && oxlint"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.21.0",
+      "onFail": "download"
+    }
+  },
+  "type": "module",
+  "dependencies": {
+    "@logtape/logtape": "^2.3.2",
+    "ayy": "^4.1.0"
+  },
+  "devDependencies": {
+    "@logtape/lint": "^2.3.2",
+    "@types/node": "^26.2.0",
+    "oxlint": "^1.79.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "typescript": "^7.0.2"
+  }
+}
