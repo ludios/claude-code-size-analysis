@@ -291,7 +291,10 @@ function place_tooltip(u) {
 	const wrap = chart_el.getBoundingClientRect();
 	const base_left = over.left - wrap.left + u.cursor.left;
 	const flip = u.cursor.left > u.over.clientWidth - tooltip_el.offsetWidth - 24;
-	tooltip_el.style.left = (flip ? base_left - tooltip_el.offsetWidth - 12 : base_left + 12) + "px";
+	const left = flip ? base_left - tooltip_el.offsetWidth - 12 : base_left + 12;
+	// In a viewport narrower than the tooltip both sides overflow; clamp so the
+	// version and sizes stay readable.
+	tooltip_el.style.left = Math.max(0, Math.min(left, wrap.width - tooltip_el.offsetWidth)) + "px";
 	tooltip_el.style.top  = (over.top - wrap.top + Math.min(u.cursor.top, u.over.clientHeight - tooltip_el.offsetHeight)) + "px";
 }
 
