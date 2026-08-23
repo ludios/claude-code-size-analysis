@@ -194,6 +194,27 @@ function analyze_binary(binary: Buffer, row: VsixRow): CompositionRow {
 }
 
 /**
+ * Load previously analyzed rows so unchanged versions are not re-extracted;
+ * analysis is by far the slowest stage of the pipeline.
+ * @returns existing rows keyed by version; empty if the output does not exist
+ */
+async function read_existing_rows(): Promise<Map<string, CompositionRow>> {
+	let text: string;
+	try {
+		text = await readFile(OUTPUT_JSONL, "utf8");
+	} catch {
+		return new Map();
+	}
+	const existing = new Map<string, CompositionRow>();
+	for (const line of text.trimEnd().split("\n")) {
+		const row = JSON.parse(line) as CompositionRow;
+		A(!existing.has(row.version), () => `duplicate version ${row.version} in ${OUTPUT_JSONL}`);
+		existing.set(row.version, row);
+	}
+	return existing;
+}
+
+/**
  * Extract the claude binary from one .vsix into memory.
  * @param vsix_file filename under vsix/
  * @returns the executable bytes
@@ -220,30 +241,36 @@ async function main(): Promise<void> {
 		.map((line) => JSON.parse(line) as VsixRow)
 		.filter((row) => row.platform === PLATFORM && row.claude_size !== null);
 	A.gt(rows.length, 0, () => `no ${PLATFORM} rows with a claude binary in ${INPUT_JSONL}`);
-	log.info(`analyzing ${rows.length} ${PLATFORM} binaries`);
+	// A version is re-analyzed if its binary size changed (e.g. a marketplace
+	// republish); otherwise the existing row is kept.
+	const existing = await read_existing_rows();
+	const pending  = rows.filter((row) => existing.get(row.version)?.file_size !== row.claude_size);
+	log.info(`analyzing ${pending.length} of ${rows.length} ${PLATFORM} binaries (${rows.length - pending.length} already in ${OUTPUT_JSONL})`);
 
-	const results: CompositionRow[] = [];
+	const analyzed: CompositionRow[] = [];
 	let next_index = 0;
 	const worker = async () => {
 		while (true) {
 			const index = next_index++;
-			if (index >= rows.length) {
+			if (index >= pending.length) {
 				return;
 			}
-			const row    = rows[index]!;
+			const row    = pending[index]!;
 			const binary = await extract_binary(row.vsix_file);
 			A.eq(binary.length, row.claude_size!, () => `${row.vsix_file}: extracted size differs from ${INPUT_JSONL}`);
-			results.push(analyze_binary(binary, row));
-			if (results.length % 25 === 0) {
-				log.info(`[${results.length}/${rows.length}] analyzed`);
+			analyzed.push(analyze_binary(binary, row));
+			if (analyzed.length % 25 === 0) {
+				log.info(`[${analyzed.length}/${pending.length}] analyzed`);
 			}
 		}
 	};
 	await Promise.all(Array.from({ length: 4 }, worker));
 
+	const by_version = new Map([...existing, ...analyzed.map((r) => [r.version, r] as const)]);
+	const results    = rows.map((row) => by_version.get(row.version)!);
 	results.sort((a, b) => (Date.parse(a.release_date) - Date.parse(b.release_date)) || a.version.localeCompare(b.version));
 	await writeFile(OUTPUT_JSONL, results.map((r) => `${JSON.stringify(r)}\n`).join(""));
-	log.info(`wrote ${results.length} rows to ${OUTPUT_JSONL}`);
+	log.info(`wrote ${results.length} rows to ${OUTPUT_JSONL} (${analyzed.length} newly analyzed)`);
 }
 
 await main();

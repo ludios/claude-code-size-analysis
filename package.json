@@ -9,6 +9,7 @@
     "chart": "node src/build_chart.ts",
     "analyze": "node src/analyze_bun.ts",
     "composition-chart": "node src/build_composition_chart.ts",
+    "pipeline": "pnpm run download && pnpm run process && pnpm run analyze && pnpm run chart && pnpm run composition-chart",
     "check": "tsc --noEmit && oxlint"
   },
   "keywords": [],
