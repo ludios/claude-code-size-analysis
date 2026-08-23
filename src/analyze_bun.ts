@@ -241,9 +241,12 @@ async function main(): Promise<void> {
 		.map((line) => JSON.parse(line) as VsixRow)
 		.filter((row) => row.platform === PLATFORM && row.claude_size !== null);
 	A.gt(rows.length, 0, () => `no ${PLATFORM} rows with a claude binary in ${INPUT_JSONL}`);
-	// A version is re-analyzed if its binary size changed (e.g. a marketplace
-	// republish); otherwise the existing row is kept.
-	const existing = await read_existing_rows();
+	// A version is re-analyzed if its binary size changed; otherwise the
+	// existing row's component sizes are kept. Size is a sufficient identity
+	// here because the download stage never overwrites a .vsix already on
+	// disk, so a version's local binary is immutable. Pass --full to discard
+	// the cache (e.g. after changing the analyzer itself).
+	const existing = process.argv.includes("--full") ? new Map<string, CompositionRow>() : await read_existing_rows();
 	const pending  = rows.filter((row) => existing.get(row.version)?.file_size !== row.claude_size);
 	log.info(`analyzing ${pending.length} of ${rows.length} ${PLATFORM} binaries (${rows.length - pending.length} already in ${OUTPUT_JSONL})`);
 
@@ -267,7 +270,15 @@ async function main(): Promise<void> {
 	await Promise.all(Array.from({ length: 4 }, worker));
 
 	const by_version = new Map([...existing, ...analyzed.map((r) => [r.version, r] as const)]);
-	const results    = rows.map((row) => by_version.get(row.version)!);
+	// Metadata always comes from the current input row, so a marketplace
+	// timestamp change cannot leave cached rows inconsistent with the other
+	// outputs; only the component sizes are reused.
+	const results = rows.map((row) => {
+		const cached = by_version.get(row.version)!;
+		cached.platform     = row.platform;
+		cached.release_date = row.release_date;
+		return cached;
+	});
 	results.sort((a, b) => (Date.parse(a.release_date) - Date.parse(b.release_date)) || a.version.localeCompare(b.version));
 	await writeFile(OUTPUT_JSONL, results.map((r) => `${JSON.stringify(r)}\n`).join(""));
 	log.info(`wrote ${results.length} rows to ${OUTPUT_JSONL} (${analyzed.length} newly analyzed)`);
