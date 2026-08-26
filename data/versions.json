@@ -11428,5 +11428,149 @@
 		"platform": "alpine-x64",
 		"last_updated": "2026-08-23T01:06:16.557Z",
 		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.241/1787446368098/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "alpine-x64",
+		"last_updated": "2026-08-24T23:53:15.487Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614876897/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "darwin-arm64",
+		"last_updated": "2026-08-24T23:53:57.293Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614890880/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "alpine-arm64",
+		"last_updated": "2026-08-24T23:54:13.193Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614864934/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "darwin-x64",
+		"last_updated": "2026-08-24T23:55:14.873Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614902133/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "linux-x64",
+		"last_updated": "2026-08-24T23:55:42.577Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614930346/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "linux-arm64",
+		"last_updated": "2026-08-24T23:55:43.193Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614916131/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "win32-x64",
+		"last_updated": "2026-08-24T23:56:39.68Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614955893/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.243",
+		"platform": "win32-arm64",
+		"last_updated": "2026-08-24T23:57:29.023Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.243/1787614942775/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "darwin-arm64",
+		"last_updated": "2026-08-25T05:25:45.75Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634853956/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "darwin-x64",
+		"last_updated": "2026-08-25T05:26:31.513Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634866726/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "linux-x64",
+		"last_updated": "2026-08-25T05:26:41.71Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634909799/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "alpine-x64",
+		"last_updated": "2026-08-25T05:27:07.78Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634841130/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "win32-arm64",
+		"last_updated": "2026-08-25T05:27:27.233Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634923073/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "win32-x64",
+		"last_updated": "2026-08-25T05:27:47.69Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634936460/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "linux-arm64",
+		"last_updated": "2026-08-25T05:29:02.337Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634881905/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.245",
+		"platform": "alpine-arm64",
+		"last_updated": "2026-08-25T05:30:04.623Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.245/1787634828115/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "alpine-arm64",
+		"last_updated": "2026-08-25T22:45:15.443Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697200353/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "alpine-x64",
+		"last_updated": "2026-08-25T22:47:26.217Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697423272/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "darwin-arm64",
+		"last_updated": "2026-08-25T22:49:08.98Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697433833/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "win32-arm64",
+		"last_updated": "2026-08-25T22:49:16.91Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697477200/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "linux-arm64",
+		"last_updated": "2026-08-25T22:49:28.733Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697454934/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "win32-x64",
+		"last_updated": "2026-08-25T22:49:30.153Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697488040/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "darwin-x64",
+		"last_updated": "2026-08-25T22:50:46.447Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697443933/Microsoft.VisualStudio.Services.VSIXPackage"
+	},
+	{
+		"version": "2.1.246",
+		"platform": "linux-x64",
+		"last_updated": "2026-08-25T22:53:16.383Z",
+		"vsix_url": "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.246/1787697465040/Microsoft.VisualStudio.Services.VSIXPackage"
 	}
 ]

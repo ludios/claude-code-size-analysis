@@ -50,15 +50,18 @@ interface CompositionRow {
 	file_size: number;
 	/** Bun/JavaScriptCore runtime: everything outside the module graph. */
 	runtime: number;
-	/** Precompiled JSC bytecode, across all modules. */
+	/** Precompiled JSC bytecode: per-module payloads plus, when present, the
+	 * graph-wide builtin-module bytecode and shared bytecode string table. */
 	bytecode: number;
-	/** Minified JS source of the entrypoint bundle. */
+	/** Minified JS source of the app bundle: the entrypoint plus, since the
+	 * code-split builds of 2.1.243+, every chunk compiled to bytecode. */
 	js_bundle: number;
 	/** Native .node addons (ripgrep, image-processor, clipboard, ...). */
 	native_addons: number;
 	/** Other embedded files (vendored JS libraries, HTML templates, shims). */
 	vendored_assets: number;
-	/** Graph bookkeeping: names, module table, and anything uncategorized. */
+	/** Graph bookkeeping: names, module table, per-module module_info
+	 * metadata, and anything uncategorized. */
 	other: number;
 }
 
@@ -103,21 +106,30 @@ function find_graph(binary: Buffer): { graph: Buffer, offset: number } {
 	return { graph, offset: start };
 }
 
+// Offsets.flags bits (bun's StandaloneModuleGraph) gating extra sections that
+// follow the module table; the sections appear in this bit order.
+const HAS_SOURCE_HASHES         = 1 << 5;
+const HAS_BUILTIN_BYTECODE      = 1 << 6;
+const HAS_BYTECODE_STRING_TABLE = 1 << 7;
+
 /**
  * Parse the module table out of a graph slice. The trailer-preceding Offsets
  * struct is stable across bun versions, but the per-module struct grew from 4
  * to 6 StringPointers; the right entry size is detected by checking that
  * every name decodes to a "/$bunfs/" path.
  * @param graph graph slice ending with the trailer
- * @returns modules plus which one is the entrypoint
+ * @returns modules, which one is the entrypoint, and shared_bytecode: bytes of
+ *          graph-wide bytecode outside any module (builtin-module bytecode and
+ *          the shared bytecode string table), 0 in pre-2026 builds
  */
-function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: number, byte_count: number } {
+function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: number, byte_count: number, shared_bytecode: number } {
 	A(graph.subarray(graph.length - TRAILER.length).equals(TRAILER), "graph does not end with Bun trailer");
 	const offsets        = graph.length - TRAILER.length - 32;
 	const byte_count     = Number(graph.readBigUInt64LE(offsets));
 	const mod_off        = graph.readUInt32LE(offsets + 8);
 	const mod_len        = graph.readUInt32LE(offsets + 12);
 	const entry_point_id = graph.readUInt32LE(offsets + 16);
+	const flags          = graph.readUInt32LE(offsets + 28);
 	const base           = offsets - byte_count;
 	A.gte(base, 0, "graph byte_count larger than graph slice");
 
@@ -145,7 +157,30 @@ function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: n
 		}
 		if (modules.length > 0) {
 			A.lt(entry_point_id, modules.length, "entry_point_id out of range");
-			return { modules, entry_point_id, byte_count };
+			// Walk the flag-gated sections after the module table; only the
+			// 6-pointer layout has a meaningful flags word. Cursor is relative
+			// to base, like the module table offsets.
+			let shared_bytecode = 0;
+			if (pointer_count === 6) {
+				let pos = mod_off + mod_len;
+				if (flags & HAS_SOURCE_HASHES) {
+					pos += 4 * modules.length;
+				}
+				if (flags & HAS_BUILTIN_BYTECODE) {
+					const count = graph.readUInt32LE(base + pos);
+					pos += 4;
+					for (let i = 0; i < count; i++) {
+						shared_bytecode += graph.readUInt32LE(base + pos + 8);
+						pos += 12;
+					}
+				}
+				if (flags & HAS_BYTECODE_STRING_TABLE) {
+					shared_bytecode += graph.readUInt32LE(base + pos + 4);
+					pos += 8;
+				}
+				A.lte(pos, byte_count, "flag-gated sections run past the graph");
+			}
+			return { modules, entry_point_id, byte_count, shared_bytecode };
 		}
 	}
 	throw new Error("could not detect module entry size");
@@ -159,14 +194,19 @@ function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: n
  */
 function analyze_binary(binary: Buffer, row: VsixRow): CompositionRow {
 	const { graph } = find_graph(binary);
-	const { modules, entry_point_id, byte_count } = parse_graph(graph);
-	let bytecode        = 0;
+	const { modules, entry_point_id, byte_count, shared_bytecode } = parse_graph(graph);
+	let bytecode        = shared_bytecode;
 	let js_bundle       = 0;
 	let native_addons   = 0;
 	let vendored_assets = 0;
+	// App code is the entrypoint plus anything precompiled to bytecode: builds
+	// through 2.1.241 shipped one big entrypoint bundle (the only module with
+	// bytecode), while 2.1.243+ code-split the app into hundreds of chunk
+	// modules, each carrying its own bytecode. Vendored JS served as text
+	// (mermaid, hljs, ...) has no bytecode and stays in vendored_assets.
 	for (const [i, module] of modules.entries()) {
 		bytecode += module.bytecode;
-		if (i === entry_point_id) {
+		if (i === entry_point_id || module.bytecode > 0) {
 			js_bundle += module.contents;
 		} else if (module.name.endsWith(".node")) {
 			native_addons += module.contents;
