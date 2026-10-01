@@ -129,7 +129,7 @@ For CREATE TABLE i.e. DDL work in the .sql files, show that your change is optim
 
 # After making changes
 
-Never `git commit -a` because there may others working; stage changes manually.
+Never `git commit -a` because there may be others working; stage changes manually.
 
 Automatically commit your changes with this commit template:
 
