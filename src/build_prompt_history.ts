@@ -8,8 +8,9 @@
 //
 //   system.md    the system prompt, without the billing metadata block
 //   messages.md  the messages: injected context around the typed prompt
-//   tools/*.md   each tool's description and input schema
-//   params.json  the rest of the request, e.g. model, max_tokens, thinking
+//   tools/*.md    each tool's description, then the rest of its definition
+//   request.json  the rest of the request, e.g. model, max_tokens, thinking,
+//                 and the tool names in the order the request lists them
 //
 // The repositories are rebuilt from scratch on every run; their commit IDs
 // stay the same as long as the captures and this script do.
@@ -29,14 +30,18 @@ const OUTPUT_DIR  = "prompt-history";
 
 /** Start of the system block carrying per-request billing metadata rather than prompt text. */
 const BILLING_HEADER = "x-anthropic-billing-header:";
-/** The scratch directory each session ran in, named differently per capture. */
-const SCRATCH_DIR             = /claude-context-[A-Za-z0-9]{6}\b/g;
-const SCRATCH_DIR_PLACEHOLDER = "claude-context-XXXXXX";
-/** Request keys left out of params.json: the prompt, which has files of its
- * own, and metadata, which holds per-session IDs. */
-const OMITTED_PARAMS = new Set(["system", "tools", "messages", "metadata"]);
+/** Text that depends on when and where a session was captured rather than
+ * on the version, with its replacement. */
+const CAPTURE_SPECIFIC: [RegExp, string][] = [
+	// The scratch directory, in a path or in a project key such as "-tmp-claude-context-xum5jj-cwd".
+	[/(?<=[/-])claude-context-[A-Za-z0-9]{6}\b/g,   "claude-context-XXXXXX"],
+	[/(?<=Today's date(?: is|:) )\d{4}-\d{2}-\d{2}\b/g, "YYYY-MM-DD"],
+];
+/** Request keys left out of request.json: the prompt text, which has files
+ * of its own, and metadata, which holds per-session IDs. */
+const OMITTED_KEYS = new Set(["system", "messages", "metadata"]);
 /** Author and committer of every commit. */
-const IDENTITY = "Claude Code <noreply@anthropic.com>";
+const IDENTITY = "prompt-history <prompt-history@localhost>";
 
 const log = getLogger(["prompt-history"]);
 const exec_file = promisify(execFile);
@@ -59,13 +64,13 @@ interface ContentBlock {
 interface Tool {
 	name: string;
 	description: string;
-	input_schema: object;
+	[key: string]: unknown;
 }
 
 /** A captured Messages API request body. */
 interface MessagesBody {
 	model: string;
-	system?: ContentBlock[];
+	system?: string | ContentBlock[];
 	tools: Tool[];
 	messages: { role: string, content: string | ContentBlock[] }[];
 	[param: string]: unknown;
@@ -107,12 +112,13 @@ function render_blocks(named: [string, string][]): string {
 
 /**
  * @param tool a tool definition from the request
- * @returns markdown: the description, then the input schema as JSON
+ * @returns markdown: the description, then the rest of the definition as JSON
  */
 function render_tool(tool: Tool): string {
-	const schema = JSON.stringify(tool.input_schema, null, "\t");
-	A(!schema.includes("```"), () => `${tool.name}: input schema contains a code fence`);
-	return `${tool.description.trimEnd()}\n\n\`\`\`json\n${schema}\n\`\`\`\n`;
+	const { description, ...rest } = tool;
+	const json  = JSON.stringify(rest, null, "\t");
+	const fence = "`".repeat(Math.max(3, ...(json.match(/`+/g) ?? []).map((run) => run.length + 1)));
+	return `${description.trimEnd()}\n\n${fence}json\n${json}\n${fence}\n`;
 }
 
 /**
@@ -129,15 +135,15 @@ function snapshot_files(body: MessagesBody, label: string): Map<string, string> 
 		return texts.map((text, b): [string, string] => [`message ${m + 1} (${message.role}), block ${b + 1}`, text]);
 	})));
 	for (const tool of body.tools) {
-		// Any other key would be part of the context but missing from the file.
-		A.eq(Object.keys(tool).toSorted().join(","), "description,input_schema,name", () => `${label}: tool ${tool.name} has other keys`);
 		A(/^[\w-]+$/.test(tool.name), () => `${label}: tool name ${JSON.stringify(tool.name)} does not make a plain filename`);
 		const path = `tools/${tool.name}.md`;
 		A(!files.has(path), () => `${label}: tool ${tool.name} appears twice`);
 		files.set(path, render_tool(tool));
 	}
-	const params = Object.fromEntries(Object.entries(body).filter(([key]) => !OMITTED_PARAMS.has(key)));
-	files.set("params.json", `${JSON.stringify(params, null, "\t")}\n`);
+	const request = Object.fromEntries(Object.entries(body)
+		.filter(([key]) => !OMITTED_KEYS.has(key))
+		.map(([key, value]) => [key, key === "tools" ? body.tools.map((tool) => tool.name) : value]));
+	files.set("request.json", `${JSON.stringify(request, null, "\t")}\n`);
 	return files;
 }
 
@@ -147,8 +153,8 @@ function snapshot_files(body: MessagesBody, label: string): Map<string, string> 
  */
 async function read_snapshot(row: ContextRow): Promise<Snapshot> {
 	const path = join(CAPTURE_DIR, `${row.version}-${row.series}.json`);
-	const raw  = await readFile(path, "utf8");
-	const body = JSON.parse(raw.replaceAll(SCRATCH_DIR, SCRATCH_DIR_PLACEHOLDER)) as MessagesBody;
+	const raw  = CAPTURE_SPECIFIC.reduce((text, [pattern, replacement]) => text.replaceAll(pattern, replacement), await readFile(path, "utf8"));
+	const body = JSON.parse(raw) as MessagesBody;
 	A.eq(body.model, row.model, () => `${path}: model differs from ${INPUT_JSONL}`);
 	const ms = Date.parse(row.release_date);
 	A(Number.isFinite(ms), () => `${row.version}: unparsable release date ${row.release_date}`);
@@ -192,19 +198,19 @@ function fast_import_stream(snapshots: Snapshot[]): Buffer {
  * @param snapshots oldest first
  */
 async function build_repo(dir: string, snapshots: Snapshot[]): Promise<void> {
+	A(!existsSync(dir) || existsSync(join(dir, ".git")), () => `${dir} is not a git repository; not replacing it`);
 	const building = `${dir}.building`;
 	await rm(building, { recursive: true, force: true });
 	await exec_file("git", ["init", "--quiet", "--initial-branch=main", building]);
 	const importer = spawn("git", ["-C", building, "fast-import", "--quiet", "--done"], { stdio: ["pipe", "inherit", "inherit"] });
+	// Should fast-import quit early, writing fails with EPIPE; its exit code tells.
+	importer.stdin.on("error", () => {});
 	importer.stdin.end(fast_import_stream(snapshots));
 	const [code] = await once(importer, "close") as [number | null];
 	A.eq(code, 0, () => `git fast-import into ${building} failed`);
 	await exec_file("git", ["-C", building, "reset", "--quiet", "--hard"]);
 
-	if (existsSync(dir)) {
-		A(existsSync(join(dir, ".git")), () => `${dir} is not a git repository; not replacing it`);
-		await rm(dir, { recursive: true });
-	}
+	await rm(dir, { recursive: true, force: true });
 	await rename(building, dir);
 }
 
@@ -216,9 +222,9 @@ async function main(): Promise<void> {
 			{ category: ["logtape", "meta"], sinks: ["console"], lowestLevel: "warning" },
 		],
 	});
-	const jsonl = await readFile(INPUT_JSONL, "utf8");
-	const rows  = jsonl.trimEnd().split("\n").map((line) => JSON.parse(line) as ContextRow);
-	A.gt(rows.length, 0, () => `no rows in ${INPUT_JSONL}`);
+	const jsonl = (await readFile(INPUT_JSONL, "utf8")).trimEnd();
+	A.neq(jsonl, "", () => `no rows in ${INPUT_JSONL}`);
+	const rows = jsonl.split("\n").map((line) => JSON.parse(line) as ContextRow);
 
 	await mkdir(OUTPUT_DIR, { recursive: true });
 	for (const [series, series_rows] of Map.groupBy(rows, (row) => row.series)) {
