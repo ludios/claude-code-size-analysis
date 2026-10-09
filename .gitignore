@@ -3,3 +3,4 @@ dist/
 vsix/
 download.log
 /.deploy
+/captured_requests/

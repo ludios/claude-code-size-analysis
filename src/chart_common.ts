@@ -1,4 +1,5 @@
 // Model-output: Claude Fable 5
+// Model-output: Claude Opus 5.5
 
 // Shared scaffolding for the self-contained uPlot chart pages: theme tokens,
 // page skeleton, and the client-side helpers (theming, tooltip placement,
@@ -18,6 +19,8 @@ export interface ChartPage {
 	subtitle_html: string;
 	/** Footer line, as HTML. */
 	footer_html: string;
+	/** Label of the collapsible data table, e.g. "Data table (MB)". */
+	table_summary: string;
 	/** Data object embedded as `const DATA = ...` for the client script. */
 	data: unknown;
 	/** Client script defining make_plot(shown) and build_tooltip(u, idx); runs after the shared helpers. */
@@ -375,7 +378,7 @@ ${page.subtitle_html === "" ? "" : `<p class="subtitle">${page.subtitle_html}</p
 	<p class="legend-hint">Click a legend entry to hide or show its series.</p>
 </div>
 <details class="table-view">
-	<summary>Data table (MB)</summary>
+	<summary>${page.table_summary}</summary>
 	<div class="table-scroll"><table id="data-table"></table></div>
 </details>
 <footer>${page.footer_html}</footer>
