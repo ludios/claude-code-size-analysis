@@ -11,7 +11,8 @@
     "composition-chart": "node src/build_composition_chart.ts",
     "context": "unshare --map-current-user --net --pid --fork --kill-child --keep-caps node src/measure_context.ts",
     "context-chart": "node src/build_context_chart.ts",
-    "pipeline": "pnpm run download && pnpm run process && pnpm run analyze && pnpm run chart && pnpm run composition-chart && pnpm run context && pnpm run context-chart",
+    "prompt-history": "node src/build_prompt_history.ts",
+    "pipeline": "pnpm run download && pnpm run process && pnpm run analyze && pnpm run chart && pnpm run composition-chart && pnpm run context && pnpm run context-chart && pnpm run prompt-history",
     "check": "tsc --noEmit && oxlint"
   },
   "keywords": [],

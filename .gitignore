@@ -4,3 +4,4 @@ vsix/
 download.log
 /.deploy
 /captured_requests/
+/prompt-history/
