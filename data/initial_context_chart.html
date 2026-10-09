@@ -376,7 +376,7 @@ function make_plot(shown) {
 				show:     shown[s],
 				stroke:   css_var("--series-" + DATA.slots[s]),
 				width:    2,
-				spanGaps: true,
+				spanGaps: false,
 				points:   { show: false },
 			})),
 		],
@@ -409,6 +409,9 @@ function build_tooltip(u, idx) {
 		cell.className   = "tt-value tt-name";
 		cell.textContent = title;
 	}
+	const model_head = head.insertCell();
+	model_head.className   = "tt-name";
+	model_head.textContent = "model";
 	for (let s = 0; s < DATA.series.length; s++) {
 		if (!u.series[s + 1].show || DATA.totals[s][idx] === null) {
 			continue;

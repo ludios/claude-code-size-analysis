@@ -70,6 +70,7 @@ function build_chart_data(rows: ContextRow[]): ChartData {
 	for (const row of rows) {
 		A(keys.includes(row.series), () => `unknown series ${row.series}; add it to SERIES`);
 		A.eq(row.system + row.tools + row.messages, row.total, () => `${row.version} ${row.series}: parts do not sum to total`);
+		A(Number.isFinite(Date.parse(row.release_date)), () => `${row.version}: bad release_date ${row.release_date}`);
 		let group = by_version.get(row.version);
 		if (group === undefined) {
 			group = { time_ms: Date.parse(row.release_date), by_series: new Map() };
@@ -137,7 +138,7 @@ function make_plot(shown) {
 				show:     shown[s],
 				stroke:   css_var("--series-" + DATA.slots[s]),
 				width:    2,
-				spanGaps: true,
+				spanGaps: false,
 				points:   { show: false },
 			})),
 		],
@@ -170,6 +171,9 @@ function build_tooltip(u, idx) {
 		cell.className   = "tt-value tt-name";
 		cell.textContent = title;
 	}
+	const model_head = head.insertCell();
+	model_head.className   = "tt-name";
+	model_head.textContent = "model";
 	for (let s = 0; s < DATA.series.length; s++) {
 		if (!u.series[s + 1].show || DATA.totals[s][idx] === null) {
 			continue;

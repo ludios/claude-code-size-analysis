@@ -8,14 +8,15 @@
 // captured_requests/, and the parts of each saved request are measured, in
 // UTF-8 bytes, into data/initial_context.jsonl.
 //
-// Run this through `pnpm run context`, which puts it in a private network
-// namespace: the binary can then reach nothing but the stand-in, so remote
-// feature flags cannot vary the prompt and nothing is sent anywhere.
+// Run this through `pnpm run context`, which puts it in private network and
+// PID namespaces: the binary can reach nothing but the stand-in, so remote
+// feature flags cannot vary the prompt and nothing is sent anywhere; and as
+// PID 1, this process takes every session still running down with it.
 
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -118,19 +119,27 @@ interface ContextRow {
 }
 
 /**
- * Bring up loopback and check that it is the only network interface, i.e.
- * that this process runs in a private network namespace.
+ * Check that this process runs in the private network and PID namespaces
+ * set up by `pnpm run context`, and bring up loopback.
  */
-async function enter_offline_mode(): Promise<void> {
+async function enter_sandbox(): Promise<void> {
+	const others = Object.keys(networkInterfaces()).filter((name) => name !== "lo");
+	A.eq(others.join(","), "", "network interfaces other than loopback are visible; run this via `pnpm run context`");
+	A.eq(process.pid, 1, "not PID 1 of a PID namespace; run this via `pnpm run context`");
 	await exec_file("ip", ["link", "set", "lo", "up"]);
-	const names = Object.keys(networkInterfaces()).join(",");
-	A.eq(names, "lo", "network interfaces other than loopback are visible; run this via `pnpm run context`");
 }
 
-/** @returns how many content blocks of the request's messages are exactly the typed prompt */
-function count_prompt_blocks(body: MessagesBody): number {
+/**
+ * @returns whether the request opens the conversation with the typed prompt:
+ *   it has tool definitions (side requests for titles and topics do not), no
+ *   assistant turn yet, and exactly one content block that is the prompt
+ *   (subagent warmups carry tools too, but not the prompt)
+ */
+function is_initial_request(body: MessagesBody): boolean {
 	const texts = body.messages.flatMap((message) => typeof message.content === "string" ? [message.content] : message.content.map((block) => block.text));
-	return texts.filter((text) => text === PROMPT).length;
+	return (body.tools?.length ?? 0) > 0
+		&& body.messages.every((message) => message.role !== "assistant")
+		&& texts.filter((text) => text === PROMPT).length === 1;
 }
 
 /**
@@ -195,8 +204,16 @@ async function start_mock_api(on_messages: (raw: string, body: MessagesBody) => 
 				res.end();
 				return;
 			}
-			const body = JSON.parse(raw) as MessagesBody;
-			on_messages(raw, body);
+			let body: MessagesBody;
+			try {
+				body = JSON.parse(raw) as MessagesBody;
+				on_messages(raw, body);
+			} catch (error) {
+				log.warn(`mock API: unreadable Messages request: ${String(error)}`);
+				res.writeHead(400);
+				res.end();
+				return;
+			}
 			write_ok_reply(res, body);
 		});
 	});
@@ -278,14 +295,14 @@ class TuiSession {
 	/** @returns the end of the output with escape sequences removed, for error messages */
 	tail(): string {
 		// oxlint-disable-next-line no-control-regex
-		return this.#output.replace(/\x1b(\[[0-9;?<>=]*[ -/]*[@-~]|\][^\x07]*\x07|[()][0-9A-Za-z]|.)/g, "").slice(-2000);
+		return this.#output.replace(/\x1b(\[[0-9;?<>=]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g, "").slice(-2000);
 	}
 
 	/**
 	 * Quit with Ctrl-C (a second one confirms) and wait for the exit, so that
-	 * claude is not still writing into its home afterwards. script(1) puts
-	 * claude in a session of its own, which a signal to script would not
-	 * reach; SIGKILL is only the fallback for a session ignoring Ctrl-C.
+	 * claude is not still writing into its home afterwards. Failing that,
+	 * SIGTERM: claude runs in a session of its own under script(1), out of
+	 * reach of signals to script, but script passes SIGTERM on to it.
 	 */
 	async close(): Promise<void> {
 		const deadline = Date.now() + EXIT_TIMEOUT_MS;
@@ -294,14 +311,19 @@ class TuiSession {
 			await sleep(300);
 		}
 		if (this.#exit_code === undefined) {
-			log.warn(`session ignored Ctrl-C for ${EXIT_TIMEOUT_MS} ms; killing it:\n${this.tail()}`);
+			log.warn(`session ignored Ctrl-C for ${EXIT_TIMEOUT_MS} ms; terminating it:\n${this.tail()}`);
+			this.#child.kill("SIGTERM");
+			await Promise.race([this.#exited, sleep(EXIT_TIMEOUT_MS)]);
+		}
+		if (this.#exit_code === undefined) {
+			log.error(`session survived SIGTERM for ${EXIT_TIMEOUT_MS} ms; killing script(1), which may leave claude running`);
 			this.#child.kill("SIGKILL");
 			await this.#exited;
 		}
 	}
 
 	#check_alive(): void {
-		A(this.#exit_code === undefined, () => `session exited with code ${this.#exit_code}:\n${this.tail()}`);
+		A.eq(this.#exit_code, undefined, () => `session exited:\n${this.tail()}`);
 	}
 }
 
@@ -321,9 +343,7 @@ function seed_config(cwd: string): object {
 
 /**
  * Start an interactive session of a binary with an empty home and working
- * directory, type PROMPT, and capture the Messages request that carries it:
- * the first one with both tool definitions and the prompt (requests that
- * warm up subagents carry tools too).
+ * directory, type PROMPT, and capture the Messages request that carries it.
  * @param binary_path runnable claude executable
  * @param model_arg value for --model
  * @param label version and series, for messages
@@ -339,7 +359,7 @@ async function capture_initial_request(binary_path: string, model_arg: string, l
 
 	const main_request = Promise.withResolvers<string>();
 	const { server, base_url } = await start_mock_api((raw, body) => {
-		if ((body.tools?.length ?? 0) > 0 && count_prompt_blocks(body) > 0) {
+		if (is_initial_request(body)) {
 			main_request.resolve(raw);
 		}
 	});
@@ -442,7 +462,10 @@ async function capture_version(row: VsixRow, series: Series[], interpreter: stri
 		for (const s of series) {
 			const tried = s.requires === undefined || found.has(s.requires);
 			const raw   = tried ? await capture_with_retries(binary_path, s.model_arg, `${row.version} ${s.key}`) : "null";
-			await writeFile(capture_path(row.version, s), raw);
+			// Written whole or not at all, since an existing capture counts as final.
+			const path = capture_path(row.version, s);
+			await writeFile(`${path}.tmp`, raw);
+			await rename(`${path}.tmp`, path);
 		}
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -479,7 +502,7 @@ function utf8_bytes(texts: string[]): number {
 function measure_request(body: MessagesBody, label: string): Pick<ContextRow, "system" | "tools" | "tool_count" | "messages" | "total"> {
 	const system_texts  = text_blocks(body.system ?? [], label).filter((text) => !text.startsWith(BILLING_HEADER));
 	const message_texts = body.messages.flatMap((message) => text_blocks(message.content, `${label} ${message.role} message`));
-	A.eq(count_prompt_blocks(body), 1, () => `${label}: typed prompt is not exactly one text block`);
+	A(is_initial_request(body), () => `${label}: not a request opening the conversation with the typed prompt`);
 	// A deferred tool's definition stays out of the context until searched
 	// for; counting it as context would need a rule of its own.
 	const deferred = body.tools!.filter((tool) => tool.defer_loading === true).map((tool) => tool.name);
@@ -498,7 +521,7 @@ async function main(): Promise<void> {
 			{ category: ["logtape", "meta"], sinks: ["console"], lowestLevel: "warning" },
 		],
 	});
-	await enter_offline_mode();
+	await enter_sandbox();
 	const jsonl = await readFile(INPUT_JSONL, "utf8");
 	const rows  = jsonl.trimEnd().split("\n")
 		.map((line) => JSON.parse(line) as VsixRow)
