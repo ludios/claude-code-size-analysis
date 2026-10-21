@@ -108,8 +108,10 @@ interface ContextRow {
 	model: string;
 	/** System prompt text, without the billing metadata block. */
 	system: number;
-	/** Tool definitions, as the JSON of the request's tools array. */
+	/** Tool definitions, as the JSON of the request's tools array without
+	 * the deferred tools. */
 	tools: number;
+	/** Number of tools in the request, not counting deferred ones. */
 	tool_count: number;
 	/** Text the session put into the messages besides the typed prompt:
 	 * system reminders, environment details, skill and agent listings. */
@@ -503,14 +505,13 @@ function measure_request(body: MessagesBody, label: string): Pick<ContextRow, "s
 	const system_texts  = text_blocks(body.system ?? [], label).filter((text) => !text.startsWith(BILLING_HEADER));
 	const message_texts = body.messages.flatMap((message) => text_blocks(message.content, `${label} ${message.role} message`));
 	A(is_initial_request(body), () => `${label}: not a request opening the conversation with the typed prompt`);
-	// A deferred tool's definition stays out of the context until searched
-	// for; counting it as context would need a rule of its own.
-	const deferred = body.tools!.filter((tool) => tool.defer_loading === true).map((tool) => tool.name);
-	A.eq(deferred.join(","), "", () => `${label}: deferred tools`);
+	// A deferred tool's definition stays out of the context until a search
+	// loads it; what the context has of it is its name in the messages.
+	const loaded   = body.tools!.filter((tool) => tool.defer_loading !== true);
 	const system   = utf8_bytes(system_texts);
-	const tools    = Buffer.byteLength(JSON.stringify(body.tools));
+	const tools    = Buffer.byteLength(JSON.stringify(loaded));
 	const messages = utf8_bytes(message_texts) - Buffer.byteLength(PROMPT);
-	return { system, tools, tool_count: body.tools!.length, messages, total: system + tools + messages };
+	return { system, tools, tool_count: loaded.length, messages, total: system + tools + messages };
 }
 
 async function main(): Promise<void> {
