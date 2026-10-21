@@ -114,7 +114,8 @@ interface ContextRow {
 	/** Number of tools in the request, not counting deferred ones. */
 	tool_count: number;
 	/** Text the session put into the messages besides the typed prompt:
-	 * system reminders, environment details, skill and agent listings. */
+	 * system reminders, environment details, deferred tool names, skill and
+	 * agent listings. */
 	messages: number;
 	/** system + tools + messages. */
 	total: number;
@@ -133,13 +134,13 @@ async function enter_sandbox(): Promise<void> {
 
 /**
  * @returns whether the request opens the conversation with the typed prompt:
- *   it has tool definitions (side requests for titles and topics do not), no
- *   assistant turn yet, and exactly one content block that is the prompt
- *   (subagent warmups carry tools too, but not the prompt)
+ *   it has tool definitions that are not deferred (side requests for titles
+ *   and topics do not), no assistant turn yet, and exactly one content block
+ *   that is the prompt (subagent warmups carry tools too, but not the prompt)
  */
 function is_initial_request(body: MessagesBody): boolean {
 	const texts = body.messages.flatMap((message) => typeof message.content === "string" ? [message.content] : message.content.map((block) => block.text));
-	return (body.tools?.length ?? 0) > 0
+	return (body.tools ?? []).some((tool) => tool.defer_loading !== true)
 		&& body.messages.every((message) => message.role !== "assistant")
 		&& texts.filter((text) => text === PROMPT).length === 1;
 }
@@ -499,14 +500,14 @@ function utf8_bytes(texts: string[]): number {
  * Measure the parts of a captured initial request.
  * @param body the parsed request
  * @param label for error messages
- * @returns sizes in UTF-8 bytes, and the number of tools
+ * @returns sizes in UTF-8 bytes, and the number of tools not deferred
  */
 function measure_request(body: MessagesBody, label: string): Pick<ContextRow, "system" | "tools" | "tool_count" | "messages" | "total"> {
 	const system_texts  = text_blocks(body.system ?? [], label).filter((text) => !text.startsWith(BILLING_HEADER));
 	const message_texts = body.messages.flatMap((message) => text_blocks(message.content, `${label} ${message.role} message`));
 	A(is_initial_request(body), () => `${label}: not a request opening the conversation with the typed prompt`);
-	// A deferred tool's definition stays out of the context until a search
-	// loads it; what the context has of it is its name in the messages.
+	// The API keeps a deferred tool's definition out of the context until a
+	// search loads it.
 	const loaded   = body.tools!.filter((tool) => tool.defer_loading !== true);
 	const system   = utf8_bytes(system_texts);
 	const tools    = Buffer.byteLength(JSON.stringify(loaded));
