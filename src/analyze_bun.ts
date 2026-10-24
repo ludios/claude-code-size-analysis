@@ -33,7 +33,8 @@ interface VsixRow {
 	claude_size: number | null;
 }
 
-/** A byte range relative to the start of the graph (bun's StringPointer). */
+/** A byte range relative to the graph's base, the start of its byte_count
+ * bytes (bun's StringPointer). */
 interface StringPointer {
 	offset: number;
 	length: number;
@@ -60,8 +61,8 @@ interface CompositionRow {
 	/** Bun/JavaScriptCore runtime: everything outside the module graph. */
 	runtime: number;
 	/** Precompiled JSC bytecode: per-module and builtin-module payloads (or,
-	 * in bun 1.4.4+ builds, the one linked payload they all share) plus, when
-	 * present, the shared bytecode string table. */
+	 * in builds with a linked payload, 2.1.310+, the one payload they all
+	 * share) plus, when present, the shared bytecode string table. */
 	bytecode: number;
 	/** Minified JS source of the app bundle: the entrypoint plus, since the
 	 * code-split builds of 2.1.243+, every chunk compiled to bytecode. */
@@ -135,9 +136,10 @@ const LINKED_BYTECODE_REGION_COUNT = 6;
 /**
  * Total the graph's JSC bytecode by walking the flag-gated records after the
  * module table. Without a linked payload, every module and builtin module
- * has its own disjoint bytecode; with one (bun 1.4.4+ builds), all of them
- * are cache entries into a single shared payload, which is counted once.
- * @param read_u32 reads a u32 at an offset relative to the graph start
+ * has its own disjoint bytecode; with one (an opt-in bun build option, seen
+ * since 2.1.310), all of them are cache entries into a single shared payload,
+ * which is counted once.
+ * @param read_u32 reads a u32 at an offset relative to the graph's base
  * @param records_at offset of the first record, just past the module table
  * @param records_end offset where the records must end (the compile_exec_argv
  *        string, which bun writes right after them)
@@ -147,12 +149,8 @@ const LINKED_BYTECODE_REGION_COUNT = 6;
  */
 function count_bytecode(read_u32: (offset: number) => number, records_at: number, records_end: number, flags: number, modules: GraphModule[]): number {
 	A.lt(flags, KNOWN_FLAGS_END, "unknown Offsets.flags bits; the graph format changed");
+	const read_pointer = (offset: number): StringPointer => ({ offset: read_u32(offset), length: read_u32(offset + 4) });
 	let pos = records_at;
-	const read_pointer = (): StringPointer => {
-		const pointer = { offset: read_u32(pos), length: read_u32(pos + 4) };
-		pos += 8;
-		return pointer;
-	};
 	const entries      = modules.map((module) => module.bytecode);
 	let   string_table = 0;
 	let   payload: StringPointer | null = null;
@@ -163,12 +161,14 @@ function count_bytecode(read_u32: (offset: number) => number, records_at: number
 		const count = read_u32(pos);
 		pos += 4;
 		for (let i = 0; i < count; i++) {
-			pos += 4; // InternalModuleRegistry id
-			entries.push(read_pointer());
+			// { u32 InternalModuleRegistry id, StringPointer bytecode }
+			entries.push(read_pointer(pos + 4));
+			pos += 12;
 		}
 	}
 	if (flags & HAS_BYTECODE_STRING_TABLE) {
-		string_table = read_pointer().length;
+		string_table = read_pointer(pos).length;
+		pos += 8;
 	}
 	if (flags & HAS_STARTUP_MODULE_COUNT) {
 		pos += 4;
@@ -184,8 +184,8 @@ function count_bytecode(read_u32: (offset: number) => number, records_at: number
 		pos += 8;
 	}
 	if (flags & HAS_LINKED_BYTECODE_PAYLOAD) {
-		payload = read_pointer();
-		pos += 4 * LINKED_BYTECODE_REGION_COUNT;
+		payload = read_pointer(pos);
+		pos += 8 + 4 * LINKED_BYTECODE_REGION_COUNT;
 		A.eq(read_u32(pos - 4), payload.length, "last linked-payload region does not end at the payload's end");
 	}
 	A.eq(pos, records_end, "flag-gated records do not end where compile_exec_argv begins");
@@ -273,7 +273,8 @@ function analyze_binary(binary: Buffer, row: VsixRow): CompositionRow {
 	// App code is the entrypoint plus anything precompiled to bytecode: builds
 	// through 2.1.241 shipped one big entrypoint bundle (the only module with
 	// bytecode), while 2.1.243+ code-split the app into hundreds of chunk
-	// modules, each carrying its own bytecode. Vendored JS served as text
+	// modules, each with bytecode (since 2.1.310, a cache entry into one
+	// shared payload). Vendored JS served as text
 	// (mermaid, hljs, ...) has no bytecode and stays in vendored_assets.
 	for (const [i, module] of modules.entries()) {
 		if (i === entry_point_id || module.bytecode.length > 0) {
@@ -371,7 +372,11 @@ async function main(): Promise<void> {
 			const row    = pending[index]!;
 			const binary = await extract_binary(row.vsix_file);
 			A.eq(binary.length, row.claude_size!, () => `${row.vsix_file}: extracted size differs from ${INPUT_JSONL}`);
-			analyzed.push(analyze_binary(binary, row));
+			try {
+				analyzed.push(analyze_binary(binary, row));
+			} catch (error) {
+				throw new Error(`${row.vsix_file}: analysis failed`, { cause: error });
+			}
 			if (analyzed.length % 25 === 0) {
 				log.info(`[${analyzed.length}/${pending.length}] analyzed`);
 			}
