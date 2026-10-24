@@ -1,4 +1,5 @@
 // Model-output: Claude Fable 5
+// Model-output: Claude Opus 5.5
 
 // Breaks each linux-x64 `claude` binary into size components and writes one
 // JSONL row per version. The binary is a Bun single-file executable: an ELF
@@ -32,14 +33,22 @@ interface VsixRow {
 	claude_size: number | null;
 }
 
+/** A byte range relative to the start of the graph (bun's StringPointer). */
+interface StringPointer {
+	offset: number;
+	length: number;
+}
+
 /** One embedded file in the Bun standalone module graph. */
 interface GraphModule {
 	/** Virtual path, e.g. "/$bunfs/root/cli". */
 	name: string;
 	/** Size of the file contents, in bytes. */
 	contents: number;
-	/** Size of the precompiled JSC bytecode for this module, in bytes. */
-	bytecode: number;
+	/** The module's precompiled JSC bytecode; length 0 if it has none. In a
+	 * linked-payload graph this runs from the module's cache entry to the end
+	 * of the shared payload, so different modules' ranges overlap. */
+	bytecode: StringPointer;
 }
 
 /** Byte sizes of the binary's components; they sum to file_size. */
@@ -50,8 +59,9 @@ interface CompositionRow {
 	file_size: number;
 	/** Bun/JavaScriptCore runtime: everything outside the module graph. */
 	runtime: number;
-	/** Precompiled JSC bytecode: per-module payloads plus, when present, the
-	 * graph-wide builtin-module bytecode and shared bytecode string table. */
+	/** Precompiled JSC bytecode: per-module and builtin-module payloads (or,
+	 * in bun 1.4.4+ builds, the one linked payload they all share) plus, when
+	 * present, the shared bytecode string table. */
 	bytecode: number;
 	/** Minified JS source of the app bundle: the entrypoint plus, since the
 	 * code-split builds of 2.1.243+, every chunk compiled to bytecode. */
@@ -61,7 +71,8 @@ interface CompositionRow {
 	/** Other embedded files (vendored JS libraries, HTML templates, shims). */
 	vendored_assets: number;
 	/** Graph bookkeeping: names, module table, per-module module_info
-	 * metadata, and anything uncategorized. */
+	 * metadata and its string table, the prelinked module graph, and anything
+	 * uncategorized. */
 	other: number;
 }
 
@@ -106,11 +117,90 @@ function find_graph(binary: Buffer): { graph: Buffer, offset: number } {
 	return { graph, offset: start };
 }
 
-// Offsets.flags bits (bun's StandaloneModuleGraph) gating extra sections that
-// follow the module table; the sections appear in this bit order.
-const HAS_SOURCE_HASHES         = 1 << 5;
-const HAS_BUILTIN_BYTECODE      = 1 << 6;
-const HAS_BYTECODE_STRING_TABLE = 1 << 7;
+// Offsets.flags bits (bun's StandaloneModuleGraph) gating optional records
+// that follow the module table; the records appear in this bit order. Bits
+// 0-4 and 10 are plain build options without a record.
+const HAS_SOURCE_HASHES            = 1 << 5;
+const HAS_BUILTIN_BYTECODE         = 1 << 6;
+const HAS_BYTECODE_STRING_TABLE    = 1 << 7;
+const HAS_STARTUP_MODULE_COUNT     = 1 << 8;
+const HAS_MODULE_INFO_STRING_TABLE = 1 << 9;
+const HAS_PRELINKED_MODULE_GRAPH   = 1 << 11;
+const HAS_RUNTIME_OPTIONS          = 1 << 12;
+const HAS_LINKED_BYTECODE_PAYLOAD  = 1 << 13;
+const KNOWN_FLAGS_END              = 1 << 14;
+/** Region-end u32s in the linked-payload record (bun's LINKED_BYTECODE_REGION_COUNT). */
+const LINKED_BYTECODE_REGION_COUNT = 6;
+
+/**
+ * Total the graph's JSC bytecode by walking the flag-gated records after the
+ * module table. Without a linked payload, every module and builtin module
+ * has its own disjoint bytecode; with one (bun 1.4.4+ builds), all of them
+ * are cache entries into a single shared payload, which is counted once.
+ * @param read_u32 reads a u32 at an offset relative to the graph start
+ * @param records_at offset of the first record, just past the module table
+ * @param records_end offset where the records must end (the compile_exec_argv
+ *        string, which bun writes right after them)
+ * @param flags the Offsets.flags word
+ * @param modules the parsed module table
+ * @returns bytecode bytes, including the shared bytecode string table
+ */
+function count_bytecode(read_u32: (offset: number) => number, records_at: number, records_end: number, flags: number, modules: GraphModule[]): number {
+	A.lt(flags, KNOWN_FLAGS_END, "unknown Offsets.flags bits; the graph format changed");
+	let pos = records_at;
+	const read_pointer = (): StringPointer => {
+		const pointer = { offset: read_u32(pos), length: read_u32(pos + 4) };
+		pos += 8;
+		return pointer;
+	};
+	const entries      = modules.map((module) => module.bytecode);
+	let   string_table = 0;
+	let   payload: StringPointer | null = null;
+	if (flags & HAS_SOURCE_HASHES) {
+		pos += 4 * modules.length;
+	}
+	if (flags & HAS_BUILTIN_BYTECODE) {
+		const count = read_u32(pos);
+		pos += 4;
+		for (let i = 0; i < count; i++) {
+			pos += 4; // InternalModuleRegistry id
+			entries.push(read_pointer());
+		}
+	}
+	if (flags & HAS_BYTECODE_STRING_TABLE) {
+		string_table = read_pointer().length;
+	}
+	if (flags & HAS_STARTUP_MODULE_COUNT) {
+		pos += 4;
+	}
+	if (flags & HAS_MODULE_INFO_STRING_TABLE) {
+		pos += 8;
+	}
+	if (flags & HAS_PRELINKED_MODULE_GRAPH) {
+		pos += 8;
+		pos += 4 + 4 * read_u32(pos);
+	}
+	if (flags & HAS_RUNTIME_OPTIONS) {
+		pos += 8;
+	}
+	if (flags & HAS_LINKED_BYTECODE_PAYLOAD) {
+		payload = read_pointer();
+		pos += 4 * LINKED_BYTECODE_REGION_COUNT;
+		A.eq(read_u32(pos - 4), payload.length, "last linked-payload region does not end at the payload's end");
+	}
+	A.eq(pos, records_end, "flag-gated records do not end where compile_exec_argv begins");
+
+	const used = entries.filter((entry) => entry.length > 0);
+	if (payload === null) {
+		return used.reduce((sum, entry) => sum + entry.length, string_table);
+	}
+	const payload_end = payload.offset + payload.length;
+	for (const entry of used) {
+		A.gte(entry.offset, payload.offset, "bytecode entry before the linked payload");
+		A.eq(entry.offset + entry.length, payload_end, "bytecode entry does not run to the end of the linked payload");
+	}
+	return payload.length + string_table;
+}
 
 /**
  * Parse the module table out of a graph slice. The trailer-preceding Offsets
@@ -118,20 +208,21 @@ const HAS_BYTECODE_STRING_TABLE = 1 << 7;
  * to 6 StringPointers; the right entry size is detected by checking that
  * every name decodes to a "/$bunfs/" path.
  * @param graph graph slice ending with the trailer
- * @returns modules, which one is the entrypoint, and shared_bytecode: bytes of
- *          graph-wide bytecode outside any module (builtin-module bytecode and
- *          the shared bytecode string table), 0 in pre-2026 builds
+ * @returns modules, which one is the entrypoint, the graph's byte_count, and
+ *          bytecode: total bytes of JSC bytecode in the graph
  */
-function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: number, byte_count: number, shared_bytecode: number } {
+function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: number, byte_count: number, bytecode: number } {
 	A(graph.subarray(graph.length - TRAILER.length).equals(TRAILER), "graph does not end with Bun trailer");
 	const offsets        = graph.length - TRAILER.length - 32;
 	const byte_count     = Number(graph.readBigUInt64LE(offsets));
 	const mod_off        = graph.readUInt32LE(offsets + 8);
 	const mod_len        = graph.readUInt32LE(offsets + 12);
 	const entry_point_id = graph.readUInt32LE(offsets + 16);
+	const exec_argv_off  = graph.readUInt32LE(offsets + 20);
 	const flags          = graph.readUInt32LE(offsets + 28);
 	const base           = offsets - byte_count;
 	A.gte(base, 0, "graph byte_count larger than graph slice");
+	const read_u32 = (offset: number) => graph.readUInt32LE(base + offset);
 
 	// Entry layouts: N StringPointers {off: u32, len: u32} then 4 enum bytes.
 	for (const pointer_count of [6, 4]) {
@@ -141,9 +232,9 @@ function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: n
 		}
 		const modules: GraphModule[] = [];
 		for (let i = 0; i < mod_len / entry_size; i++) {
-			const entry    = base + mod_off + i * entry_size;
-			const name_off = graph.readUInt32LE(entry);
-			const name_len = graph.readUInt32LE(entry + 4);
+			const entry    = mod_off + i * entry_size;
+			const name_off = read_u32(entry);
+			const name_len = read_u32(entry + 4);
 			const name     = graph.toString("utf8", base + name_off, base + name_off + name_len);
 			if (!name.startsWith("/$bunfs/")) {
 				modules.length = 0;
@@ -151,36 +242,17 @@ function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: n
 			}
 			modules.push({
 				name,
-				contents: graph.readUInt32LE(entry + 12),
-				bytecode: graph.readUInt32LE(entry + 28),
+				contents: read_u32(entry + 12),
+				bytecode: { offset: read_u32(entry + 24), length: read_u32(entry + 28) },
 			});
 		}
 		if (modules.length > 0) {
 			A.lt(entry_point_id, modules.length, "entry_point_id out of range");
-			// Walk the flag-gated sections after the module table; only the
-			// 6-pointer layout has a meaningful flags word. Cursor is relative
-			// to base, like the module table offsets.
-			let shared_bytecode = 0;
-			if (pointer_count === 6) {
-				let pos = mod_off + mod_len;
-				if (flags & HAS_SOURCE_HASHES) {
-					pos += 4 * modules.length;
-				}
-				if (flags & HAS_BUILTIN_BYTECODE) {
-					const count = graph.readUInt32LE(base + pos);
-					pos += 4;
-					for (let i = 0; i < count; i++) {
-						shared_bytecode += graph.readUInt32LE(base + pos + 8);
-						pos += 12;
-					}
-				}
-				if (flags & HAS_BYTECODE_STRING_TABLE) {
-					shared_bytecode += graph.readUInt32LE(base + pos + 4);
-					pos += 8;
-				}
-				A.lte(pos, byte_count, "flag-gated sections run past the graph");
-			}
-			return { modules, entry_point_id, byte_count, shared_bytecode };
+			// Only the 6-pointer layout has a meaningful flags word and records.
+			const bytecode = pointer_count === 6
+				? count_bytecode(read_u32, mod_off + mod_len, exec_argv_off, flags, modules)
+				: modules.reduce((sum, module) => sum + module.bytecode.length, 0);
+			return { modules, entry_point_id, byte_count, bytecode };
 		}
 	}
 	throw new Error("could not detect module entry size");
@@ -194,8 +266,7 @@ function parse_graph(graph: Buffer): { modules: GraphModule[], entry_point_id: n
  */
 function analyze_binary(binary: Buffer, row: VsixRow): CompositionRow {
 	const { graph } = find_graph(binary);
-	const { modules, entry_point_id, byte_count, shared_bytecode } = parse_graph(graph);
-	let bytecode        = shared_bytecode;
+	const { modules, entry_point_id, byte_count, bytecode } = parse_graph(graph);
 	let js_bundle       = 0;
 	let native_addons   = 0;
 	let vendored_assets = 0;
@@ -205,8 +276,7 @@ function analyze_binary(binary: Buffer, row: VsixRow): CompositionRow {
 	// modules, each carrying its own bytecode. Vendored JS served as text
 	// (mermaid, hljs, ...) has no bytecode and stays in vendored_assets.
 	for (const [i, module] of modules.entries()) {
-		bytecode += module.bytecode;
-		if (i === entry_point_id || module.bytecode > 0) {
+		if (i === entry_point_id || module.bytecode.length > 0) {
 			js_bundle += module.contents;
 		} else if (module.name.endsWith(".node")) {
 			native_addons += module.contents;
