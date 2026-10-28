@@ -18,19 +18,21 @@ Welcome. Before starting or resuming work, check what `hostname` outputs.
 
 # Environment
 
+All thinking is hidden from the user, so if you find anything they may wish to know about, please write to the output.
+
 Your `Bash` tool uses zsh, not bash.
 
-You're on NixOS 26.05; many things are installed, including:
+You're on NixOS and many things are installed, including:
 
 ripgrep, ripgrep-all, node, deno, pnpm, oxfmt, oxlint, jq, python3, uv, natscli (bin: nats), nats-server, psql, ephemeralpg (bin: pg_tmp), google-chrome, curl-impersonate, gcc, go, rustc, cargo, patchelf, zip, unzip, zstd, dmesg, perf, hyperfine, codex, claude.
 
-A prebuilt Linux binary downloaded by some tool can fail with a misleading ENOENT; patch for NixOS:
+Third-party binaries may fail with ENOENT and thus need patching for NixOS:
 
 	patchelf --set-interpreter "$(patchelf --print-interpreter /bin/sh)" BIN
 
 plus `--set-rpath` to a nix gcc-lib for libstdc++ if needed.
 
-When waiting on something, generally don't use `sleep N` where N > 10; use the built-in task watching, or e.g. `wait-for-process-exit PID`, or loop something e.g. `rg -q PATTERN FILE` with a 2 second wait.
+When waiting on something, avoid `sleep N` where N > 10; use built-in task watching or e.g. `wait-for-process-exit PID`, or loop something e.g. `rg -q PATTERN FILE` with a 2 second wait.
 
 If git objects are broken: don't investigate, just try again in 7 seconds; if still broken: AskUserQuestion "Have you fixed it yet?" Y/N.
 
@@ -64,7 +66,7 @@ If you can't fetch something, use google-chrome or curl_chrome150 on this machin
 
 # Tracking AI authorship
 
-Files with any LLM-authored code (not counting mechanistic sed-like changes) begin with a comment like `// Model-output: <model name>`, one per model that contributed (e.g. "Claude Fable 5.1", "ChatGPT 6 Astra"); keep existing lines.
+Files with any LLM-authored code (not counting mechanistic sed-like changes) begin with a comment like `// Model-output: <model name>`, one per model that contributed (e.g. "Claude Mythos 5.1", "ChatGPT 6 Astra"); keep existing lines.
 
 # Code conventions
 
@@ -137,53 +139,58 @@ Try writing a function in different ways and see which version is better.
 
 Sometimes a program can log or assert to generate interesting observations which feed into further development of the program. We do our own science on the outputs later to improve the program.
 
-When there are multiple good ways to implement something, especially involving state or the definition of a type: please ask the user. User loves AskUserQuestion.
+When there are multiple good ways to implement something, especially involving state or the definition of a type: please ask the user. User loves AskUserQuestion, but please explain the problem correctly in the regular session before asking the question.
 
-For CREATE TABLE i.e. DDL work in the .sql files, show that your change is optimal among all variants, or consult the human user; they have good data modeling thoughts.
+Before creating or changing any PostgreSQL DDL e.g. in schema/, read https://github.com/ludios/pg-ddl first. Consult the user; they may know the domain or have production data.
 
 # Committing
+
+**Other sessions may be at work** and their commits must not be lost. On HEAD / master / main / prime: rebase, amend, reset, stash, etc. **are never allowed**, unless other sessions are idle and not waiting on anything!
+
+Smaller changes are usually easier to think about. Commit one logical change at a time whenever possible! Commit early and often!
+
+When small commits are too hard with e.g. the build still working, larger commits are fine.
+
+**Use the imperative mood in the subject line**. Do not end the subject line with a period. Wrap the body at 72 characters, generally.
+
+Sample subject line:
+
+	Don't insert a file and rollback a transaction just to get the id
+	Factor out file-reading function that looks up the storage
+	Make sure zstd-compressed data round-trips back to input data
+	Refactor some tests a bit
+	Refactor to reduce repetition
+	Resolve oxlint warning
+	schema: forbid '.' and '..' in DOMAIN linux_basename; add more tests
+	storage_read::read: don't require storage for size=0 files
+	storage_write::write: don't hold a postgres transaction open while we upload a file
+	storage_write::write: don't take a transaction as an argument
+	Tweak comment
+	Update Cargo.lock
 
 Never `git commit -a` because there may be others working; stage changes manually.
 
 Automatically commit your changes with this commit template:
 
-	subsystem: short one-line description; semicolon if multiple changes
+	Subject line
 
-	Model-output: model name e.g. Claude Fable 5.1
+	A longer description or explanation of why/what is changing, when it is genuinely helpful.
 
-	<prompt>
+	Model-output: model name e.g. Claude Mythos 5.1
 
-	user prompt, verbatim
-
-	AskUserQuestion question-answers, if any
-
-	</prompt>
-
-	<slop>
-
-	model's response at the end of the dialogue, verbatim, in markdown format
-
-	</slop>
-
-"(mid-turn)" if user added something mid-turn; multiple &lt;prompt>&lt;/prompt> &lt;slop>&lt;/slop> ... if the conversation had several real turns.
-
-If acting on code reviews from Codex, Claude, or some other agent, inside the beginning of &lt;slop>, add one per review:
-
-	<review model="model e.g. gpt-6-astra" reasoning_effort="effort e.g. xhigh">
-
-	...
-
-	</review>
+	Session-file: ~/.claude/projects/[...]/[...].jsonl
 
 # Code review after each commit
 
-After each commit you make, get it reviewed by Codex and by Claude, all at xhigh reasoning:
+After each commit made, `git clone --shared` the repo into some /tmp/ folder and get it reviewed by Codex and by Claude, all at xhigh reasoning:
 
 	codex review --commit <sha> -c model="gpt-6-astra" -c model_reasoning_effort="xhigh"
 	codex review --commit <sha> -c model="gpt-6.1-sol" -c model_reasoning_effort="xhigh"
 	codex review --commit <sha> -c model="gpt-5.6-sol" -c model_reasoning_effort="xhigh"
-	claude -p --model claude-fable-5-1 --effort xhigh "/code-review xhigh commit <sha>"
+	claude -p --model claude-mythos-5-1 --effort xhigh "/code-review xhigh commit <sha>"
 	claude -p --model claude-opus-5-5 --effort xhigh "/code-review xhigh commit <sha>"
+
+Ensure that the output of each review gets written or copied to ~/.ai-code-reviews/{model}/{commit} or /{commit-range}, then delete the clone.
 
 Notes:
 
@@ -191,9 +198,9 @@ Notes:
 	- codex: replace `--commit <sha>` with `--base <sha before your first commit>`
 	- claude: replace `commit <sha>` with `commits <sha before your first commit>..<sha of your last commit>`
 - Codex is already configured globally to never ask for permission and run unsandboxed.
-- A review can take several minutes; start them all in the background. Reviewers read the working tree, so don't edit files until the reviews are in.
+- A review can take several minutes; start all of them in one Bash call with `run_in_background`, each command ending in `&`, then one `wait`.
 - Review findings are from **fallible machines eager to find issues**: think and prefer fixes that don't add a bunch of code we don't really need.
-- Once all the reviews are in, fix the oversights that are really worth fixing, in one or more commits. If nothing, say briefly why the findings didn't warrant changes.
+- Once all the reviews are in, fix the oversights that are really worth fixing, in logical, independent commits where possible, without "act on the ... reviews of ..."! If nothing, say briefly why the findings didn't warrant changes.
 - Do _not_ send follow-up fixes through another review. (Exception: the follow-up grew into something substantial beyond addressing the findings.)
 
 # Thank you for your hard work on this project
