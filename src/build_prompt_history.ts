@@ -204,7 +204,7 @@ async function build_repo(dir: string, snapshots: Snapshot[]): Promise<void> {
 	// Unlike --initial-branch, this doesn't warn when the repository exists already.
 	await exec_file("git", ["-c", "init.defaultBranch=main", "init", "--quiet", dir]);
 	const versions = new Set(snapshots.map((snapshot) => snapshot.version));
-	const { stdout } = await exec_file("git", ["-C", dir, "tag", "--list"]);
+	const { stdout } = await exec_file("git", ["-C", dir, "for-each-ref", "--format=%(refname:strip=2)", "refs/tags"]);
 	const stale = stdout.split("\n").filter((tag) => tag !== "" && !versions.has(tag));
 	if (stale.length > 0) {
 		log.info(`${dir}: deleting tags of versions no longer measured: ${stale.join(", ")}`);
