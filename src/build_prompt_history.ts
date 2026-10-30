@@ -19,7 +19,7 @@
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { configure, getConsoleSink, getLogger } from "@logtape/logtape";
@@ -234,7 +234,6 @@ async function main(): Promise<void> {
 	A.neq(jsonl, "", () => `no rows in ${INPUT_JSONL}`);
 	const rows = jsonl.split("\n").map((line) => JSON.parse(line) as ContextRow);
 
-	await mkdir(OUTPUT_DIR, { recursive: true });
 	for (const [series, series_rows] of Map.groupBy(rows, (row) => row.series)) {
 		const snapshots: Snapshot[] = [];
 		let changes = 0;
