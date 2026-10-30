@@ -12,13 +12,14 @@
 //   request.json  the rest of the request, e.g. model, max_tokens, thinking,
 //                 and the tool names in the order the request lists them
 //
-// The repositories are rebuilt from scratch on every run; their commit IDs
-// stay the same as long as the captures and this script do.
+// Every run imports all the versions again, and git does all the writing to
+// the repositories, so that they come out the same wherever git runs. Their
+// commit IDs stay the same as long as the captures and this script do.
 
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { configure, getConsoleSink, getLogger } from "@logtape/logtape";
@@ -193,25 +194,31 @@ function fast_import_stream(snapshots: Snapshot[]): Buffer {
 }
 
 /**
- * Build a model's history repository and put it in place of the previous one.
+ * Make a model's history repository, creating it if needed, hold exactly
+ * these snapshots: main and a tag for each version, checked out.
  * @param dir where the repository goes
  * @param snapshots oldest first
  */
 async function build_repo(dir: string, snapshots: Snapshot[]): Promise<void> {
-	A(!existsSync(dir) || existsSync(join(dir, ".git")), () => `${dir} is not a git repository; not replacing it`);
-	const building = `${dir}.building`;
-	await rm(building, { recursive: true, force: true });
-	await exec_file("git", ["init", "--quiet", "--initial-branch=main", building]);
-	const importer = spawn("git", ["-C", building, "fast-import", "--quiet", "--done"], { stdio: ["pipe", "inherit", "inherit"] });
+	A(!existsSync(dir) || existsSync(join(dir, ".git")), () => `${dir} is not a git repository; not importing into it`);
+	// Unlike --initial-branch, this doesn't warn when the repository exists already.
+	await exec_file("git", ["-c", "init.defaultBranch=main", "init", "--quiet", dir]);
+	const versions = new Set(snapshots.map((snapshot) => snapshot.version));
+	const { stdout } = await exec_file("git", ["-C", dir, "tag", "--list"]);
+	const stale = stdout.split("\n").filter((tag) => tag !== "" && !versions.has(tag));
+	if (stale.length > 0) {
+		log.info(`${dir}: deleting tags of versions no longer measured: ${stale.join(", ")}`);
+		await exec_file("git", ["-C", dir, "tag", "--delete", ...stale]);
+	}
+
+	// --force, for when a change to the captures or to this script rewrites history
+	const importer = spawn("git", ["-C", dir, "fast-import", "--quiet", "--force", "--done"], { stdio: ["pipe", "inherit", "inherit"] });
 	// Should fast-import quit early, writing fails with EPIPE; its exit code tells.
 	importer.stdin.on("error", () => {});
 	importer.stdin.end(fast_import_stream(snapshots));
 	const [code] = await once(importer, "close") as [number | null];
-	A.eq(code, 0, () => `git fast-import into ${building} failed`);
-	await exec_file("git", ["-C", building, "reset", "--quiet", "--hard"]);
-
-	await rm(dir, { recursive: true, force: true });
-	await rename(building, dir);
+	A.eq(code, 0, () => `git fast-import into ${dir} failed`);
+	await exec_file("git", ["-C", dir, "reset", "--quiet", "--hard"]);
 }
 
 async function main(): Promise<void> {
