@@ -194,8 +194,8 @@ function fast_import_stream(snapshots: Snapshot[]): Buffer {
 }
 
 /**
- * Make a model's history repository, creating it if needed, hold exactly
- * these snapshots: main and a tag for each version, checked out.
+ * Make main and the tags of a model's history repository, creating it if
+ * needed, hold exactly these snapshots, and check out main.
  * @param dir where the repository goes
  * @param snapshots oldest first
  */
@@ -218,7 +218,8 @@ async function build_repo(dir: string, snapshots: Snapshot[]): Promise<void> {
 	importer.stdin.end(fast_import_stream(snapshots));
 	const [code] = await once(importer, "close") as [number | null];
 	A.eq(code, 0, () => `git fast-import into ${dir} failed`);
-	await exec_file("git", ["-C", dir, "reset", "--quiet", "--hard"]);
+	// Rather than reset --hard, which would keep HEAD where someone left it, e.g. on an old version
+	await exec_file("git", ["-C", dir, "checkout", "--quiet", "--force", "main"]);
 }
 
 async function main(): Promise<void> {
